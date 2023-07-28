@@ -137,4 +137,3 @@ void swap3(Data& lhs, Data& rhs)
 	ul1.unlock();
 	ul2.unlock();
 }
-

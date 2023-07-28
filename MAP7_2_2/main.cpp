@@ -3,121 +3,115 @@
 #include <mutex>
 #include <chrono>
 #include <vector>
+#include <condition_variable>
 #include <Windows.h>
+#include <random>
+#include <atomic>
+#include "Timer.h"
+
 
 
 using namespace std::chrono_literals;
-std::mutex m;
-void setCursor(int x, int y);
-void progressBar(const std::chrono::milliseconds timeCalculation);
-void calculation(const int numberThread, const std::chrono::milliseconds timeCalculation);
+std::mutex m1; // for printing a number and a id of threads
+std::mutex m2; // for printing progress bar
+std::mutex m3; // for printing Time
+std::once_flag flag; // for printing headers only one time in mulithread calculation
+
+void printHeaders();
+void calculationProgressBar(const int numberThread, const int countThreads);
+
+class ProgressBar {
+public:
+	ProgressBar(int numberThreads, int data) : numberThreads(numberThreads), data(data)
+	{
+		printNumberAndId();
+	};
+	void calculation();
+
+private:
+	int numberThreads;
+	int x0 = 15;
+	int x = x0;
+	int y = numberThreads;
+	int data;
+	int width = 12;
+	bool endProgress = false;
+	std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
+	void printNumberAndId();
+};
+
+std::vector<ProgressBar> progressBars;
 
 int main() {
-	std::chrono::milliseconds timeCalculation = 5000ms;
 	int countThreads = 4;
 	std::vector<std::thread> vectorThreads;
-	for (int i = 0; i < countThreads; ++i) {
-		vectorThreads.push_back(std::thread(calculation, i + 1, timeCalculation));
+	for (int i = 0; i < countThreads; ++i) 
+	{
+		vectorThreads.push_back(std::thread(calculationProgressBar, i + 1, countThreads));
 	}
-	for (int i = 0; i < countThreads; ++i) {
+	for (int i = 0; i < countThreads; ++i) 
+	{
 		vectorThreads.at(i).join();
 	}
+	consol_parameter::SetPosition(0, countThreads + 1);
 	return 0;
 }
 
-
-void setCursor(int x, int y)
+void printHeaders()
 {
-	COORD coordinates = { x, y };
-	SetConsoleCursorPosition(GetStdHandle(STD_OUTPUT_HANDLE), coordinates);
+	std::cout << "#\t" << "id\t" << "Progress Bar\t" << "Time" << std::endl;
 }
 
-// работает, если инициализировать все функции до мейна. Периодически работает неправильно, хз, почему (что-то с установкой курсора в консоли неправильно работает), поэтому реализовал другую функцию
-//void progressBar(const std::chrono::milliseconds timeCalculation) 
-//{
-//	CONSOLE_SCREEN_BUFFER_INFO consoleInfo;
-//	GetConsoleScreenBufferInfo(GetStdHandle(STD_OUTPUT_HANDLE), &consoleInfo);
-//	char fillingChar = '|';
-//	char leftBoundary = '[';
-//	char rightBoundary = ']';
-//	std::cout << leftBoundary;
-//	int x = consoleInfo.dwCursorPosition.X;
-//	int y = consoleInfo.dwCursorPosition.Y;
-//	setCursor(x + 101, y);
-//	std::cout << rightBoundary;
-//	setCursor(x + 1, y);
-//	std::chrono::milliseconds percent = timeCalculation / 100;
-//	bool flag = true;
-//	std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
-//	auto previousDuration = 0ms;
-//	int cursorPosition = x + 1;
-//	int count = 1;
-//	while (true) {
-//		std::chrono::steady_clock::time_point currentTime = std::chrono::steady_clock::now();
-//		auto duration = std::chrono::duration_cast<std::chrono::milliseconds> (currentTime - start); // вычисляем время выполнения в микросекундах
-//		if ((duration.count() % percent.count()) == 0 && previousDuration != duration) {
-//			setCursor(cursorPosition, y);
-//			std::cout << fillingChar;
-//			previousDuration = duration;
-//			setCursor(x + 105, y);
-//			std::cout << static_cast<double>(duration.count()) / timeCalculation.count() * 100 << "%";
-//			count++;
-//			cursorPosition = x + count;
-//		}
-//		else if (abs(duration.count() - timeCalculation.count()) <= 0.1) {
-//			break;
-//		}
-//	}
-//	std::cout << std::endl;
-//}
-
-void progressBar(const std::chrono::milliseconds timeCalculation) 
+void calculationProgressBar(const int numberThread, const int countThreads)
 {
-	char fillingChar = '|';
-	char leftBoundary = '[';
-	char rightBoundary = ']';
-	int width = 50; // ширина прогресс-бара в символах
-	int current = 0; // текущая позиция прогресс-бара
-	int total = 100; // общее количество шагов
-	int step = total / width; // количество шагов на один шаг прогресс-бара
-	int progress = 0; // текущее количество выполненных шагов
-	while (progress <= total) {
-		// вычисление процента выполнения
-        int percent = (progress * 100) / total;
+	std::call_once(flag, printHeaders);
+	std::unique_lock<std::mutex> ulc(m1);
+	std:ProgressBar pb(numberThread, countThreads*100);
+	progressBars.push_back(pb);
+	ulc.unlock();
+	pb.calculation();
+}
 
-        // вычисление количества символов для заполнения прогресс-бара
-        int fill = (percent * width) / 100;
+void ProgressBar::printNumberAndId() {
+	consol_parameter::SetPosition(0, y);
+	std::cout << y << "\t" << std::this_thread::get_id() << '\n';
+}
 
-        // вывод прогресс-бара
-        std::cout << "\r" <<leftBoundary;
-        for (int i = 0; i < fill; i++) {
-            std::cout << fillingChar;
-        }
-        for (int i = fill; i < width; i++) {
-            std::cout << " ";
-        }
-        std::cout << rightBoundary << " " << percent << "%";
-
-        // обновление текущей позиции прогресс-бара
-        current += step;
-        progress += step;
-
-        // задержка на время, необходимое для обновления прогресс-бара
-        std::this_thread::sleep_for(timeCalculation / (28.5*step));
-
+void ProgressBar::calculation() {
+	std::random_device rd;
+	std::mt19937 gen(rd());
+	std::uniform_int_distribution<> dis(0, 100);
+	double step = static_cast<double>(data) / width;
+	double progress = 0;
+	int text = 0;
+	consol_parameter::SetColor(7, text);
+	while(progress < data)
+	{
+		std::this_thread::sleep_for(200ms);
+		
+		std::unique_lock<std::mutex> ulc(m2);
+		try {
+			if (dis(gen) % 3 == 0) {
+				throw std::runtime_error("Error");
+			}
+			text = 7;
+		}
+		catch (const std::exception& e) {
+			text = 4;
+		}
+		consol_parameter::SetColor(7, text);
+		consol_parameter::SetPosition(x, y);
+		std::cout << " ";
+		progress += step;
+		x += 1;
+		std::this_thread::sleep_for(200ms);
+		ulc.unlock();
 	}
-	std::cout << std::endl;
-}
-
-void calculation(const int numberThread, const std::chrono::milliseconds timeCalculation)
-{
-	std::lock_guard<std::mutex> lm(m);
-	std::cout << "Thread's number: " << numberThread << "\n";
-	auto start = std::chrono::steady_clock::now();
-	std::cout << "Thread's id: " << std::this_thread::get_id() << '\n';
-	std::cout << "Calculation progress: \n";
-	progressBar(timeCalculation);
+	std::unique_lock<std::mutex> ulc(m3);
 	auto end = std::chrono::steady_clock::now();
+	std::this_thread::sleep_for(50ms);
+	consol_parameter::SetColor(7, 0);
+	consol_parameter::SetPosition(x0 + width + 5, y);
 	auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
-	std::cout << "Total time thread's work: " << duration.count() << "ms\n";
+	std::cout << duration.count() * 1e-3 << "s";
 }
